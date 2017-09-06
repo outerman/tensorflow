@@ -386,11 +386,11 @@ class AdjustHueBenchmark(test.Benchmark):
           sess.run(run_op)
     end = time.time()
     step_time = (end - start) / benchmark_rounds
-    tag = "%s" % (cpu_count) if cpu_count is not None else "_all"
-    print("benchmarkAdjustHue_299_299_3_cpu%s step_time: %.2f us" %
+    tag = device + "_%s" % (cpu_count if cpu_count is not None else "_all")
+    print("benchmarkAdjustHue_299_299_3_%s step_time: %.2f us" %
           (tag, step_time * 1e6))
     self.report_benchmark(
-        name="benchmarkAdjustHue_299_299_3_cpu%s" % (tag),
+        name="benchmarkAdjustHue_299_299_3_%s" % (tag),
         iters=benchmark_rounds,
         wall_time=step_time)
 
@@ -432,11 +432,11 @@ class AdjustSaturationBenchmark(test.Benchmark):
           sess.run(run_op)
     end = time.time()
     step_time = (end - start) / benchmark_rounds
-    tag = "%s" % (cpu_count) if cpu_count is not None else "_all"
-    print("benchmarkAdjustSaturation_599_599_3_cpu%s step_time: %.2f us" %
+    tag = device + "_%s" % (cpu_count if cpu_count is not None else "_all")
+    print("benchmarkAdjustSaturation_299_299_3_%s step_time: %.2f us" %
           (tag, step_time * 1e6))
     self.report_benchmark(
-        name="benchmarkAdjustSaturation_599_599_3_cpu%s" % (tag),
+        name="benchmarkAdjustSaturation_299_299_3_%s" % (tag),
         iters=benchmark_rounds,
         wall_time=step_time)
 
@@ -704,7 +704,7 @@ class AdjustSaturationTest(test_util.TensorFlowTestCase):
         "gb_same",
         "rgb_same",
     ]
-    with self.test_session():
+    with self.test_session(use_gpu=True):
       for x_shape in x_shapes:
         for test_style in test_styles:
           x_np = np.random.rand(*x_shape) * 255.
@@ -2455,6 +2455,26 @@ class JpegTest(test_util.TensorFlowTestCase):
         self.assertEqual(image.get_shape().as_list(),
                          [None, None, channels or None])
 
+  def testExtractJpegShape(self):
+    # Read a real jpeg and verify shape.
+    path = ("tensorflow/core/lib/jpeg/testdata/"
+            "jpeg_merge_test1.jpg")
+    with self.test_session(use_gpu=True) as sess:
+      jpeg = io_ops.read_file(path)
+      # Extract shape without decoding.
+      [image_shape] = sess.run([image_ops.extract_jpeg_shape(jpeg)])
+      self.assertEqual(image_shape.tolist(), [256, 128, 3])
+
+  def testExtractJpegShapeforCmyk(self):
+    # Read a cmyk jpeg image, and verify its shape.
+    path = ("tensorflow/core/lib/jpeg/testdata/"
+            "jpeg_merge_test1_cmyk.jpg")
+    with self.test_session(use_gpu=True) as sess:
+      jpeg = io_ops.read_file(path)
+      [image_shape] = sess.run([image_ops.extract_jpeg_shape(jpeg)])
+      # Cmyk jpeg image has 4 channels.
+      self.assertEqual(image_shape.tolist(), [256, 128, 4])
+
 
 class PngTest(test_util.TensorFlowTestCase):
 
@@ -2857,6 +2877,24 @@ class FormatTest(test_util.TensorFlowTestCase):
       for decode in image_ops.decode_jpeg, image_ops.decode_png:
         with self.assertRaisesOpError(r"Got 12 frames"):
           decode(io_ops.read_file(path)).eval()
+
+
+class NonMaxSuppressionTest(test_util.TensorFlowTestCase):
+
+  def testSelectFromThreeClusters(self):
+    boxes_np = [[0, 0, 1, 1], [0, 0.1, 1, 1.1], [0, -0.1, 1, 0.9],
+                [0, 10, 1, 11], [0, 10.1, 1, 11.1], [0, 100, 1, 101]]
+    scores_np = [0.9, 0.75, 0.6, 0.95, 0.5, 0.3]
+    max_output_size_np = 3
+    iou_threshold_np = 0.5
+    with self.test_session():
+      boxes = constant_op.constant(boxes_np)
+      scores = constant_op.constant(scores_np)
+      max_output_size = constant_op.constant(max_output_size_np)
+      iou_threshold = constant_op.constant(iou_threshold_np)
+      selected_indices = image_ops.non_max_suppression(
+          boxes, scores, max_output_size, iou_threshold).eval()
+      self.assertAllClose(selected_indices, [3, 0, 5])
 
 
 if __name__ == "__main__":
